@@ -18,9 +18,7 @@ Add to your shell rc:
 ```zsh
 # ~/.zshrc
 eval "$(runic init zsh)"
-```
 
-```bash
 # ~/.bashrc   (Esc is a readline prefix, so use double-Esc)
 eval "$(runic init bash)"
 ```
@@ -32,7 +30,7 @@ Requires [`fzf`](https://github.com/junegunn/fzf) on `PATH` (`brew install fzf`)
 On an empty prompt, press **Esc**. A fuzzy picker opens, showing:
 
 1. Targets from `runic.mk` in the current directory (or any parent)
-2. Targets from the project's `Makefile`
+2. Targets from the project's `Makefile` (if it exists)
 3. Targets from `~/.runic.mk`
 4. Hosts from `~/.ssh/config`
 
