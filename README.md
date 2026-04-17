@@ -1,6 +1,11 @@
 # runic
 
-Spotlight-style launcher for Makefile targets and SSH hosts. Press **Esc**, type to filter, hit Enter. Runs `make <target>` under the hood.
+Spotlight-style launcher for two things:
+
+- **Makefile targets** — executed locally via `make <target>`
+- **SSH hosts** from `~/.ssh/config` — opens a plain `ssh <host>` interactive session
+
+Press **Esc**, type to filter, hit Enter.
 
 ## Install
 
