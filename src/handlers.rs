@@ -9,7 +9,8 @@ use crate::{config, makefile, picker, prompt, shell, ssh};
 pub fn dispatch(cmd: CliCommand) -> Result<()> {
     match cmd {
         CliCommand::Init { shell } => {
-            print!("{}", shell::init_script(shell));
+            let cfg = config::load()?;
+            print!("{}", shell::init_script(shell, &cfg.shell));
             Ok(())
         }
         CliCommand::Pick => pick(),

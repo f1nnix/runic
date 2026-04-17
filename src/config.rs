@@ -9,6 +9,8 @@ pub struct Config {
     pub ssh: SshConfig,
     #[serde(default)]
     pub picker: PickerConfig,
+    #[serde(default)]
+    pub shell: ShellConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,8 +57,36 @@ fn default_height() -> String {
     "50%".into()
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ShellConfig {
+    /// How long the shell waits for a follow-up byte after Esc, in milliseconds.
+    ///
+    /// Default: 10 (near-instant). Zsh's `KEYTIMEOUT` uses 10ms units, so this is
+    /// divided by 10 for zsh. Bash's `keyseq-timeout` uses ms directly.
+    /// Set to 0 to leave the shell's existing timeout untouched.
+    #[serde(default = "default_key_timeout_ms")]
+    pub key_timeout_ms: u32,
+}
+
+impl Default for ShellConfig {
+    fn default() -> Self {
+        Self {
+            key_timeout_ms: default_key_timeout_ms(),
+        }
+    }
+}
+
+fn default_key_timeout_ms() -> u32 {
+    10
+}
+
 pub fn config_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("runic").join("config.toml"))
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        if !xdg.is_empty() {
+            return Some(PathBuf::from(xdg).join("runic").join("config.toml"));
+        }
+    }
+    dirs::home_dir().map(|h| h.join(".config").join("runic").join("config.toml"))
 }
 
 pub fn load() -> Result<Config> {
