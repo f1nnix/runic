@@ -19,7 +19,10 @@ pub struct Makefile {
 pub fn parse(path: &Path) -> Result<Makefile> {
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("read {}", path.display()))?;
+    Ok(parse_str(&text, path.to_path_buf()))
+}
 
+fn parse_str(text: &str, path: PathBuf) -> Makefile {
     let mut targets: Vec<Target> = Vec::new();
     let mut defined_vars: BTreeSet<String> = BTreeSet::new();
     let mut pending_desc: Option<String> = None;
@@ -91,11 +94,11 @@ pub fn parse(path: &Path) -> Result<Makefile> {
 
     flush(&mut targets, &mut current, &mut current_body);
 
-    Ok(Makefile {
-        path: path.to_path_buf(),
+    Makefile {
+        path,
         targets,
         defined_vars,
-    })
+    }
 }
 
 /// Parse a target line `name[ name...] : [prereqs] [## desc]`.
@@ -265,4 +268,230 @@ fn is_builtin(name: &str) -> bool {
             | ".FEATURES"
             | ".DEFAULT_GOAL"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_mk(text: &str) -> Makefile {
+        parse_str(text, PathBuf::from("test.mk"))
+    }
+
+    // -- parse_target --------------------------------------------------------
+
+    #[test]
+    fn target_simple() {
+        let (name, desc, prereqs) = parse_target("build:").unwrap();
+        assert_eq!(name, "build");
+        assert!(desc.is_none());
+        assert_eq!(prereqs, "");
+    }
+
+    #[test]
+    fn target_with_prereqs() {
+        let (name, desc, prereqs) = parse_target("install: build test").unwrap();
+        assert_eq!(name, "install");
+        assert!(desc.is_none());
+        assert_eq!(prereqs, "build test");
+    }
+
+    #[test]
+    fn target_with_trailing_description() {
+        let (name, desc, _) = parse_target("build: ## Build the project").unwrap();
+        assert_eq!(name, "build");
+        assert_eq!(desc.as_deref(), Some("Build the project"));
+    }
+
+    #[test]
+    fn target_with_prereqs_and_description() {
+        let (name, desc, prereqs) = parse_target("deploy: build ## Deploy").unwrap();
+        assert_eq!(name, "deploy");
+        assert_eq!(desc.as_deref(), Some("Deploy"));
+        assert_eq!(prereqs, "build");
+    }
+
+    #[test]
+    fn target_skips_special() {
+        assert!(parse_target(".PHONY: build").is_none());
+        assert!(parse_target(".SUFFIXES:").is_none());
+    }
+
+    #[test]
+    fn target_skips_assignment() {
+        assert!(parse_target("VAR := value").is_none());
+        assert!(parse_target("VAR ?= default").is_none());
+    }
+
+    // -- parse_var_def -------------------------------------------------------
+
+    #[test]
+    fn var_def_all_operators() {
+        assert_eq!(parse_var_def("HOST = x").as_deref(), Some("HOST"));
+        assert_eq!(parse_var_def("HOST := x").as_deref(), Some("HOST"));
+        assert_eq!(parse_var_def("HOST ?= x").as_deref(), Some("HOST"));
+        assert_eq!(parse_var_def("CFLAGS += -O2").as_deref(), Some("CFLAGS"));
+    }
+
+    #[test]
+    fn var_def_with_export() {
+        assert_eq!(parse_var_def("export PATH = /usr/bin").as_deref(), Some("PATH"));
+    }
+
+    #[test]
+    fn var_def_with_override() {
+        assert_eq!(parse_var_def("override CC = clang").as_deref(), Some("CC"));
+    }
+
+    #[test]
+    fn var_def_rejects_target() {
+        assert!(parse_var_def("build: test").is_none());
+    }
+
+    // -- extract_var_refs ----------------------------------------------------
+
+    #[test]
+    fn refs_simple_paren() {
+        let refs = extract_var_refs("ssh $(HOST)");
+        assert!(refs.contains("HOST"));
+        assert_eq!(refs.len(), 1);
+    }
+
+    #[test]
+    fn refs_simple_curly() {
+        let refs = extract_var_refs("ssh ${HOST}");
+        assert!(refs.contains("HOST"));
+    }
+
+    #[test]
+    fn refs_multiple() {
+        let refs = extract_var_refs("ssh $(USER)@$(HOST):$(PORT)");
+        assert!(refs.contains("USER"));
+        assert!(refs.contains("HOST"));
+        assert!(refs.contains("PORT"));
+        assert_eq!(refs.len(), 3);
+    }
+
+    #[test]
+    fn refs_skip_builtins() {
+        let refs = extract_var_refs("$(MAKE) -C sub; $(SHELL) -c foo");
+        assert!(!refs.contains("MAKE"));
+        assert!(!refs.contains("SHELL"));
+    }
+
+    #[test]
+    fn refs_skip_shell_functions() {
+        // Any whitespace inside $(...) means it's a function call, not a var.
+        let refs = extract_var_refs("echo $(shell date +%Y)");
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn refs_skip_automatic_vars() {
+        // $@, $<, $^, $*, $? — two-char refs, not variables to prompt for.
+        let refs = extract_var_refs("cp $< $@; tar $^");
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn refs_skip_dollar_escape() {
+        let refs = extract_var_refs("echo $$HOME");
+        assert!(refs.is_empty());
+    }
+
+    // -- find_matching (nested parens) ---------------------------------------
+
+    #[test]
+    fn matching_handles_flat() {
+        // find_matching assumes depth 1 on entry (caller already consumed the open).
+        assert_eq!(find_matching(b"foo)", b')'), Some(3));
+    }
+
+    #[test]
+    fn matching_skips_nested_pairs() {
+        // Inner `()` pair at idx 0..2 bumps depth up and back; outer close at idx 2.
+        assert_eq!(find_matching(b"())", b')'), Some(2));
+        // One nested pair plus trailing text: outer close at idx 7.
+        assert_eq!(find_matching(b"(a()b)c)", b')'), Some(7));
+    }
+
+    // -- full parse ----------------------------------------------------------
+
+    #[test]
+    fn parse_collects_targets_and_descriptions() {
+        let mk = parse_mk(
+            "## Build the project\n\
+             build:\n\
+             \tcargo build\n\
+             \n\
+             ## Run tests\n\
+             test: build\n\
+             \tcargo test\n",
+        );
+        assert_eq!(mk.targets.len(), 2);
+        assert_eq!(mk.targets[0].name, "build");
+        assert_eq!(mk.targets[0].description.as_deref(), Some("Build the project"));
+        assert_eq!(mk.targets[1].name, "test");
+        assert_eq!(mk.targets[1].description.as_deref(), Some("Run tests"));
+    }
+
+    #[test]
+    fn parse_trailing_description_also_works() {
+        let mk = parse_mk("build: ## Build it\n\tcargo build\n");
+        assert_eq!(mk.targets[0].description.as_deref(), Some("Build it"));
+    }
+
+    #[test]
+    fn parse_blank_line_discards_pending_description() {
+        let mk = parse_mk(
+            "## Orphan description\n\
+             \n\
+             build:\n\
+             \tcargo build\n",
+        );
+        assert!(mk.targets[0].description.is_none());
+    }
+
+    #[test]
+    fn parse_collects_defined_vars() {
+        let mk = parse_mk(
+            "HOST ?= localhost\n\
+             PORT := 22\n\
+             deploy:\n\
+             \tssh $(HOST):$(PORT)\n",
+        );
+        assert!(mk.defined_vars.contains("HOST"));
+        assert!(mk.defined_vars.contains("PORT"));
+    }
+
+    #[test]
+    fn parse_collects_body_vars_including_prereqs() {
+        let mk = parse_mk(
+            "deploy: $(ARTIFACT)\n\
+             \tscp $(ARTIFACT) $(HOST):/srv\n",
+        );
+        let target = &mk.targets[0];
+        assert!(target.body_vars.contains("ARTIFACT"));
+        assert!(target.body_vars.contains("HOST"));
+    }
+
+    #[test]
+    fn parse_ignores_phony() {
+        let mk = parse_mk(
+            "build:\n\
+             \tcargo build\n\
+             .PHONY: build\n",
+        );
+        assert_eq!(mk.targets.len(), 1);
+        assert_eq!(mk.targets[0].name, "build");
+    }
+
+    #[test]
+    fn parse_handles_var_def_with_colon_equals() {
+        // The `:=` should NOT be misread as a target colon.
+        let mk = parse_mk("CC := clang\nbuild:\n\t$(CC) -o x\n");
+        assert_eq!(mk.targets.len(), 1);
+        assert_eq!(mk.targets[0].name, "build");
+        assert!(mk.defined_vars.contains("CC"));
+    }
 }

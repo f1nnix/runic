@@ -275,3 +275,38 @@ fn shell_quote(s: &str) -> String {
     }
     format!("'{}'", s.replace('\'', "'\\''"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quote_preserves_safe_chars() {
+        assert_eq!(shell_quote("simple"), "simple");
+        assert_eq!(shell_quote("KEY=VAL"), "KEY=VAL");
+        assert_eq!(shell_quote("path/to/file.rs"), "path/to/file.rs");
+        assert_eq!(shell_quote("host-1"), "host-1");
+    }
+
+    #[test]
+    fn quote_wraps_empty_string() {
+        assert_eq!(shell_quote(""), "''");
+    }
+
+    #[test]
+    fn quote_wraps_spaces() {
+        assert_eq!(shell_quote("hello world"), "'hello world'");
+    }
+
+    #[test]
+    fn quote_escapes_single_quote() {
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn quote_wraps_shell_metacharacters() {
+        assert_eq!(shell_quote("$FOO"), "'$FOO'");
+        assert_eq!(shell_quote("a;b"), "'a;b'");
+        assert_eq!(shell_quote("`echo`"), "'`echo`'");
+    }
+}
