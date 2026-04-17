@@ -50,3 +50,46 @@ fn matches_pattern(pattern: &str, text: &str) -> bool {
         && text.ends_with(suffix)
         && text.len() >= prefix.len() + suffix.len()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_match() {
+        assert!(matches_pattern("github.com", "github.com"));
+        assert!(!matches_pattern("github.com", "gitlab.com"));
+    }
+
+    #[test]
+    fn prefix_glob() {
+        assert!(matches_pattern("git.*", "git.example.com"));
+        assert!(matches_pattern("git.*", "git."));
+        assert!(!matches_pattern("git.*", "github.com"));
+    }
+
+    #[test]
+    fn suffix_glob() {
+        assert!(matches_pattern("*.example.com", "foo.example.com"));
+        assert!(!matches_pattern("*.example.com", "foo.other.com"));
+    }
+
+    #[test]
+    fn middle_glob() {
+        assert!(matches_pattern("prod-*-app", "prod-east-app"));
+        assert!(!matches_pattern("prod-*-app", "dev-east-app"));
+    }
+
+    #[test]
+    fn lone_star_matches_anything() {
+        assert!(matches_pattern("*", "anything"));
+        assert!(matches_pattern("*", ""));
+    }
+
+    #[test]
+    fn glob_rejects_text_too_short() {
+        // prefix+suffix length exceeds text length → no match
+        assert!(!matches_pattern("ab*cd", "abc"));
+        assert!(!matches_pattern("ab*cd", "cd"));
+    }
+}
