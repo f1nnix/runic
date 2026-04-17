@@ -131,7 +131,16 @@ include = []
 
 [picker]
 height = "50%"
+
+[shell]
+# How long the shell waits for a follow-up byte after Esc, in milliseconds.
+# 10ms is near-instant and eliminates the ~400ms default Esc delay in zsh.
+# Set to 0 to leave the shell's existing timeout untouched.
+key_timeout_ms = 10
 ```
+
+> **Tip:** If you're in tmux, add `set -sg escape-time 0` to `~/.tmux.conf` — tmux
+> adds its own 500ms Esc delay on top of the shell's.
 
 ---
 
